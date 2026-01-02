@@ -3,3 +3,4 @@ Siempre tiene que haber un servidor abierto. Antes de crearse el servidor, te pi
 Los clientes también eligen su nombre antes de conectarse al servidor y ellos son los que escriben mensajes y todo.
 Las IPs de todo el mundo las puede ver el servidor.
 Si el del servidor cierra el programa, se apaga todo.
+Todos deben estar en la misma red LAN.
