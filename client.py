@@ -98,7 +98,7 @@ def recibir_mensajes(sock, text_area, root):
                 end_paren = mensaje.find(')', start_paren)
                 if end_paren != -1:
                     current_sender = mensaje[:start_paren].strip()
-                    mensaje_sin_ip = mensaje[:start_paren] + mensaje[end_paren + 1:]
+                    mensaje_sin_ip = mensaje[:start_paren].rstrip() + mensaje[end_paren + 1:]
                     mensaje = mensaje_sin_ip.replace("  ", " ").strip()
             if current_sender and current_sender == LAST_SENDER:
                 needs_separator = False
