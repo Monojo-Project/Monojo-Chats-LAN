@@ -7,12 +7,11 @@ from PIL import Image, ImageTk
 import os
 
 # ============================
-# CONFIGURACIÓN DEL SERVIDOR
+# CONFIGURACIÓN
 # ============================
 TCP_PORT = 6405
 UDP_PORT = 6406
 BUFFER = 4096
-HOST = '0.0.0.0'
 
 clientes_map = {}
 stop_event = threading.Event()
@@ -20,16 +19,17 @@ server_socket = None
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ICON_PATH = os.path.join(BASE_DIR, "Monojo.png")
-NOMBRE_SALA = None  # Se pedirá al usuario antes de iniciar
+NOMBRE_SALA = None
 
 # ============================
 # UTILIDADES
 # ============================
 
 def get_local_ip():
+    """Devuelve la IP LAN de la máquina."""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.connect(('10.255.255.255', 1))
+        s.connect(('8.8.8.8', 80))
         IP = s.getsockname()[0]
     except:
         IP = '127.0.0.1'
@@ -47,15 +47,11 @@ def on_closing(root):
     global server_socket
     stop_event.set()
     for client in list(clientes_map.keys()):
-        try:
-            client.close()
-        except:
-            pass
+        try: client.close()
+        except: pass
     if server_socket:
-        try:
-            server_socket.close()
-        except:
-            pass
+        try: server_socket.close()
+        except: pass
     root.destroy()
 
 # ============================
@@ -68,21 +64,16 @@ def transmitir(mensaje, cliente_excluir=None):
             try:
                 client.send(mensaje.encode("utf-8"))
             except:
-                if client in clientes_map:
-                    del clientes_map[client]
-                try:
-                    client.close()
-                except:
-                    pass
+                clientes_map.pop(client, None)
+                try: client.close()
+                except: pass
 
 def manejar_cliente(client_socket, addr, text_area):
     ip_cliente = addr[0]
     nombre_usuario = f"Usuario_{ip_cliente}"
-    
     try:
         nombre_data = client_socket.recv(BUFFER)
-        if not nombre_data:
-            raise ConnectionResetError("No se recibió el nombre")
+        if not nombre_data: raise ConnectionResetError("No se recibió el nombre")
         nombre_usuario = nombre_data.decode("utf-8")
         clientes_map[client_socket] = nombre_usuario
         msg_conexion = f"[Entró {nombre_usuario} ({ip_cliente})]"
@@ -96,17 +87,13 @@ def manejar_cliente(client_socket, addr, text_area):
     while not stop_event.is_set():
         try:
             data = client_socket.recv(BUFFER)
-            if not data:
-                break
+            if not data: break
             mensaje = data.decode("utf-8")
-            mensaje_a_reenviar = f"\n{nombre_usuario} ({ip_cliente}): {mensaje}"
             mostrar_mensaje(text_area, f"{nombre_usuario}: {mensaje}", "negro")
-            transmitir(mensaje_a_reenviar, client_socket)
-        except:
-            break
+            transmitir(f"\n{nombre_usuario} ({ip_cliente}): {mensaje}", client_socket)
+        except: break
 
     if client_socket in clientes_map:
-        nombre_usuario = clientes_map[client_socket]
         del clientes_map[client_socket]
     msg_desconexion = f"[Salió {nombre_usuario} ({ip_cliente})]"
     mostrar_mensaje(text_area, msg_desconexion, "rojo")
@@ -163,15 +150,13 @@ def main_servidor():
     global NOMBRE_SALA
     root_temp = tk.Tk()
     root_temp.withdraw()
-    # Pedimos el nombre de la sala
     NOMBRE_SALA = simpledialog.askstring("Nombre de la Sala", "Ingresa el nombre de la sala de chat:")
-    if not NOMBRE_SALA:
-        sys.exit()
+    if not NOMBRE_SALA: sys.exit()
     root_temp.destroy()
 
     local_ip = get_local_ip()
     root = tk.Tk()
-    root.title(f"Monojo Chats LAN Servidor - SERVIDOR (IP: {local_ip})")
+    root.title(f"MonojoChat LAN - SERVIDOR (IP: {local_ip})")
     root.geometry("600x450")
     root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root))
 
@@ -179,8 +164,7 @@ def main_servidor():
         img = Image.open(ICON_PATH)
         icon = ImageTk.PhotoImage(img)
         root.iconphoto(True, icon)
-    except:
-        pass
+    except: pass
 
     text_area = scrolledtext.ScrolledText(root, state=tk.DISABLED, wrap=tk.WORD)
     text_area.tag_config('verde', foreground='green')
@@ -195,3 +179,4 @@ def main_servidor():
 
 if __name__ == "__main__":
     main_servidor()
+
