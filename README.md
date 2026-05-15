@@ -4,3 +4,6 @@ Los clientes también eligen su nombre antes de conectarse al servidor y ellos s
 Las IPs de todo el mundo las puede ver el servidor.
 Si el del servidor cierra el programa, se apaga todo.
 Todos deben estar en la misma red LAN.
+
+### La única dependencia adicional es pillow
+### Versión 2.0: escanea la red en busca de los servidores abiertos.
