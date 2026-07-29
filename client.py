@@ -1,3 +1,8 @@
+#!/bin/python3
+
+# Monojo Chats LAN 2.1: Ahora incluye notificaciones :)
+# Licencia GPL v3, Monojo Project, David Baña Szymaniak
+
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog, messagebox
 import socket
@@ -6,6 +11,7 @@ import sys
 import os
 from PIL import Image, ImageTk
 import time
+import subprocess
 
 # ============================
 # CONFIGURACIÓN
@@ -17,8 +23,8 @@ BUFFER = 4096
 stop_event = threading.Event()
 client_socket = None
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ICON_PATH = os.path.join(BASE_DIR, "Monojo.png")
+BASE_DIR = "/usr/share/icons/hicolor/512x512/apps"
+ICON_PATH = os.path.join(BASE_DIR, "monojo-azul.png")
 
 CLIENT_USERNAME = None
 LAST_SENDER = None  # Último remitente mostrado
@@ -98,6 +104,7 @@ def recibir_mensajes(sock, text_area, root):
             mensaje = data.decode("utf-8").strip()
             current_sender = None
             needs_separator = True
+            mensaje_content_raw = mensaje  # por defecto
 
             # Detectar remitente eliminando la IP entre paréntesis
             start_paren = mensaje.find('(')
@@ -105,8 +112,16 @@ def recibir_mensajes(sock, text_area, root):
                 end_paren = mensaje.find(')', start_paren)
                 if end_paren != -1:
                     current_sender = mensaje[:start_paren].strip()
-                    mensaje_sin_ip = mensaje[:start_paren] + mensaje[end_paren + 1:]
-                    mensaje = mensaje_sin_ip.replace("  ", " ").strip()
+                    # Extraer el contenido real del mensaje (quitando ':' y espacios)
+                    mensaje_content_raw = mensaje[end_paren+1:].lstrip(':').strip()
+                    # Reconstruir para mostrar en el chat con formato "Remitente: contenido"
+                    mensaje = f"{current_sender}: {mensaje_content_raw}"
+                else:
+                    # Si no hay cierre de paréntesis, dejamos como está
+                    mensaje_content_raw = mensaje
+            else:
+                # Sin paréntesis, asumimos que no hay remitente identificable
+                mensaje_content_raw = mensaje
 
             if current_sender and current_sender == LAST_SENDER:
                 needs_separator = False
@@ -114,15 +129,30 @@ def recibir_mensajes(sock, text_area, root):
             # Mensajes de sistema
             if mensaje.startswith('[Entró'):
                 LAST_SENDER = None
-                mostrar_mensaje(text_area, mensaje, "verde" if "[Conectado" in mensaje else "verde", needs_separator=False)
-                
+                mostrar_mensaje(text_area, mensaje, "verde", needs_separator=False)
+
             elif mensaje.startswith('[Salió'):
                 LAST_SENDER = None
-                mostrar_mensaje(text_area, mensaje, "rojo" if "[Salió" in mensaje else "rojo", needs_separator=False)
-                
+                mostrar_mensaje(text_area, mensaje, "rojo", needs_separator=False)
+
             else:
                 LAST_SENDER = current_sender
-                mostrar_mensaje(text_area, mensaje if current_sender != CLIENT_USERNAME else f"Tú: {mensaje}", "negro", needs_separator=needs_separator)
+                # Mostrar en el chat
+                mostrar_mensaje(text_area,
+                                mensaje if current_sender != CLIENT_USERNAME else f"Tú: {mensaje_content_raw}",
+                                "negro", needs_separator=needs_separator)
+
+                # NOTIFICACIÓN NATIVA: solo para mensajes de otros usuarios y si la ventana NO está activa
+                if not mensaje.startswith('[') and current_sender and current_sender != CLIENT_USERNAME:
+                    if not getattr(root, 'window_focused', True):
+                        try:
+                            subprocess.run(
+                                ['notify-send', '--app-name', 'Monojo Chats LAN', '-i', ICON_PATH,
+                                 current_sender, mensaje_content_raw],
+                                timeout=1
+                            )
+                        except Exception:
+                            pass  # Si notify-send falla, simplemente se ignora
         except:
             if not stop_event.is_set():
                 mostrar_mensaje(text_area, "[Conexión perdida o error]", "rojo")
@@ -157,10 +187,22 @@ def iniciar_chat_con_ip(ip_server):
     global client_socket, CLIENT_USERNAME
     stop_event.clear()
 
-    root = tk.Tk()
-    root.title(f"MonojoChat LAN - {CLIENT_USERNAME} -> Conectado a {ip_server}")
+    root = tk.Tk(className="monojo_chats_lan_main")
+    root.title(f"Monojo Chats LAN - {CLIENT_USERNAME} -> Conectado a {ip_server}")
     root.geometry("500x500")
     root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root))
+
+    # Variable para rastrear el foco de la ventana
+    root.window_focused = True
+
+    def on_focus_in(event):
+        root.window_focused = True
+
+    def on_focus_out(event):
+        root.window_focused = False
+
+    root.bind("<FocusIn>", on_focus_in)
+    root.bind("<FocusOut>", on_focus_out)
 
     text_area = scrolledtext.ScrolledText(root, state=tk.DISABLED, wrap=tk.WORD)
     text_area.tag_config('verde', foreground='green')
@@ -216,8 +258,8 @@ def seleccionar_sala():
         messagebox.showinfo("No hay salas", "No se encontraron salas disponibles en LAN.")
         sys.exit()
 
-    root = tk.Tk()
-    root.title("Selecciona Sala MonojoChat")
+    root = tk.Tk(className="monojo_chats_lan_seleccionar_sala")
+    root.title("Selecciona Sala Monojo Chats LAN")
     root.geometry("300x300")
 
     lista_salas = tk.Listbox(root)
