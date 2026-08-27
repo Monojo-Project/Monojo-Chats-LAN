@@ -29,12 +29,12 @@
       "name": "monojo-server.png"
     },
     {
-      "file": "monojo_chats_lan_client.desktop",
+      "file": "org.lyndscorp.monojo_chats_lan_client.desktop",
       "dest": "/usr/share/applications",
       "name": "mc_lan_client.desktop"
     },
     {
-      "file": "monojo_chats_lan_server.desktop",
+      "file": "org.lyndscorp.monojo_chats_lan_server.desktop",
       "dest": "/usr/share/applications",
       "name": "mc_lan_server.desktop"
     }
