@@ -7,14 +7,17 @@ from tkinter import scrolledtext, simpledialog, messagebox, Menu
 from PIL import Image, ImageTk
 import os
 import time
+import hashlib
+import base64
 
 try:
-    import cryptography
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives import padding
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
     CRYPTOGRAPHY_AVAILABLE = False
     print("Advertencia: La librería 'cryptography' no está instalada.")
-    print("El servidor no la necesita, pero es recomendable instalarla con: pip install cryptography")
+    print("El servidor no podrá descifrar mensajes sin ella. Instálala con: pip install cryptography")
 
 # ============================
 # CONFIGURACIÓN
@@ -23,8 +26,8 @@ TCP_PORT = 6405
 UDP_PORT = 6406
 BUFFER = 4096
 
-clientes_map = {}          # socket -> (nombre, ip)
-banned_ips = {}            # ip -> None (permanente) o timestamp de expiración
+clientes_map = {}
+banned_ips = {}
 stop_event = threading.Event()
 server_socket = None
 
@@ -32,10 +35,41 @@ BASE_DIR = "/usr/share/icons/hicolor/512x512/apps"
 ICON_PATH = os.path.join(BASE_DIR, "monojo-server.png")
 NOMBRE_SALA = None
 PASSWORD_REQUIRED = False
+PASSWORD = None
+crypto = None
 
-# ============================
-# UTILIDADES
-# ============================
+class CryptoHandler:
+    def __init__(self, password=None):
+        self.password = password
+        if password is not None:
+            self.key = hashlib.sha256(password.encode()).digest()
+        else:
+            self.key = None
+
+    def encrypt(self, plaintext: str) -> str:
+        if self.key is None:
+            return plaintext
+        padder = padding.PKCS7(128).padder()
+        padded_data = padder.update(plaintext.encode()) + padder.finalize()
+        cipher = Cipher(algorithms.AES(self.key), modes.ECB())
+        encryptor = cipher.encryptor()
+        ciphertext = encryptor.update(padded_data) + encryptor.finalize()
+        return base64.b64encode(ciphertext).decode()
+
+    def decrypt(self, ciphertext_str: str) -> str | None:
+        if self.key is None:
+            return ciphertext_str
+        try:
+            data = base64.b64decode(ciphertext_str)
+            cipher = Cipher(algorithms.AES(self.key), modes.ECB())
+            decryptor = cipher.decryptor()
+            padded_plaintext = decryptor.update(data) + decryptor.finalize()
+            unpadder = padding.PKCS7(128).unpadder()
+            plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
+            return plaintext.decode()
+        except Exception:
+            return None
+
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -76,9 +110,6 @@ def is_banned(ip):
             return False
     return False
 
-# ============================
-# TRANSMISIÓN CON DELIMITADOR
-# ============================
 def transmitir(mensaje, cliente_excluir=None):
     for client in list(clientes_map.keys()):
         if client != cliente_excluir:
@@ -89,9 +120,6 @@ def transmitir(mensaje, cliente_excluir=None):
                 try: client.close()
                 except: pass
 
-# ============================
-# MANEJO DE CLIENTES
-# ============================
 def manejar_cliente(client_socket, addr, text_area):
     ip_cliente = addr[0]
     if is_banned(ip_cliente):
@@ -106,7 +134,6 @@ def manejar_cliente(client_socket, addr, text_area):
         nombre_usuario = nombre_data.decode("utf-8")
         clientes_map[client_socket] = (nombre_usuario, ip_cliente)
 
-        # Enviar control con delimitador
         if PASSWORD_REQUIRED:
             client_socket.send(b"PASSWORD_REQUIRED\n")
         else:
@@ -125,15 +152,20 @@ def manejar_cliente(client_socket, addr, text_area):
         try:
             data = client_socket.recv(BUFFER)
             if not data: break
-            # Procesar mensajes recibidos (vienen con delimitador)
             buffer = data.decode("utf-8")
             for linea in buffer.split('\n'):
                 if linea.strip():
                     mensaje = linea.strip()
-                    # Mostrar en servidor (cifrado o texto plano)
-                    mostrar_mensaje(text_area, f"{nombre_usuario}: {mensaje}", "negro")
-                    # Retransmitir a los demás
-                    transmitir(f"\n{nombre_usuario} ({ip_cliente}): {mensaje}", client_socket)
+                    if crypto is not None:
+                        texto_claro = crypto.decrypt(mensaje)
+                        if texto_claro is not None:
+                            mostrar_mensaje(text_area, f"{nombre_usuario}: {texto_claro}", "negro")
+                        else:
+                            mostrar_mensaje(text_area, f"{nombre_usuario}: [CIFRADO] {mensaje}", "rojo")
+                    else:
+                        mostrar_mensaje(text_area, f"{nombre_usuario}: {mensaje}", "negro")
+                    # Retransmitir sin salto de línea inicial
+                    transmitir(f"{nombre_usuario} ({ip_cliente}): {mensaje}", client_socket)
         except:
             break
 
@@ -168,9 +200,6 @@ def iniciar_servidor_tcp(text_area):
         root = text_area.winfo_toplevel()
         root.after(0, lambda: on_closing(root))
 
-# ============================
-# SERVIDOR UDP PARA DESCUBRIMIENTO
-# ============================
 def responder_broadcast():
     global NOMBRE_SALA, PASSWORD_REQUIRED
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -186,9 +215,6 @@ def responder_broadcast():
             break
     udp_sock.close()
 
-# ============================
-# FUNCIONES DE ADMINISTRACIÓN
-# ============================
 def actualizar_lista():
     lista_usuarios.delete(0, tk.END)
     for sock, (nombre, ip) in clientes_map.items():
@@ -221,6 +247,10 @@ def expulsar_usuario():
     if not sock:
         return
     nombre, ip = clientes_map[sock]
+    try:
+        sock.send(b"[KICKED]\n")
+    except:
+        pass
     sock.close()
     transmitir(f"[Admin] {nombre} fue expulsado", None)
     mostrar_mensaje(text_area, f"[Admin] {nombre} expulsado", "azul")
@@ -233,6 +263,10 @@ def banear_ip():
     banned_ips[ip] = None
     for s, (n, i) in list(clientes_map.items()):
         if i == ip:
+            try:
+                s.send(b"[KICKED]\n")
+            except:
+                pass
             s.close()
     transmitir(f"[Admin] IP {ip} baneada permanentemente", None)
     mostrar_mensaje(text_area, f"[Admin] IP {ip} baneada permanentemente", "azul")
@@ -247,6 +281,10 @@ def banear_temporal():
         banned_ips[ip] = time.time() + segundos
         for s, (n, i) in list(clientes_map.items()):
             if i == ip:
+                try:
+                    s.send(b"[KICKED]\n")
+                except:
+                    pass
                 s.close()
         transmitir(f"[Admin] IP {ip} baneada por {segundos} segundos", None)
         mostrar_mensaje(text_area, f"[Admin] IP {ip} baneada temporalmente por {segundos}s", "azul")
@@ -275,11 +313,8 @@ def mostrar_menu_contextual(event):
     menu.add_command(label="Desbanear IP", command=desbanear_ip)
     menu.tk_popup(event.x_root, event.y_root)
 
-# ============================
-# INTERFAZ GRÁFICA
-# ============================
 def main_servidor():
-    global NOMBRE_SALA, PASSWORD_REQUIRED, root, text_area, lista_usuarios
+    global NOMBRE_SALA, PASSWORD_REQUIRED, PASSWORD, crypto, root, text_area, lista_usuarios
     root_temp = tk.Tk()
     root_temp.withdraw()
 
@@ -289,12 +324,16 @@ def main_servidor():
 
     quiere_contrasena = messagebox.askyesno("Contraseña", "¿Desea que la sala requiera contraseña?")
     if quiere_contrasena:
-        contrasena = simpledialog.askstring("Contraseña", "Ingrese la contraseña (se usará solo para comunicarla a los participantes):", show='*')
+        contrasena = simpledialog.askstring("Contraseña", "Ingrese la contraseña (se usará para descifrar mensajes):", show='*')
         if contrasena is None:
             sys.exit()
         PASSWORD_REQUIRED = True
+        PASSWORD = contrasena
+        crypto = CryptoHandler(PASSWORD)
     else:
         PASSWORD_REQUIRED = False
+        PASSWORD = None
+        crypto = None
 
     root_temp.destroy()
 

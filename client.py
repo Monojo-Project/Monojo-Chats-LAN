@@ -1,7 +1,4 @@
 #!/bin/python3
-# Monojo Chats LAN 3.0 – Cliente con cifrado determinista AES-ECB
-# Licencia GPL v3, Monojo Project, David Baña Szymaniak
-
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog, messagebox
 import socket
@@ -20,11 +17,9 @@ try:
 except ImportError:
     print("Error: La librería 'cryptography' no está instalada.")
     print("Instálala con: pip install cryptography")
+    print("O con: sudo apt install python3-cryptography")
     sys.exit(1)
 
-# ============================
-# CONFIGURACIÓN
-# ============================
 TCP_PORT = 6405
 UDP_PORT = 6406
 BUFFER = 4096
@@ -37,15 +32,10 @@ ICON_PATH = os.path.join(BASE_DIR, "monojo-azul.png")
 CLIENT_USERNAME = None
 LAST_SENDER = None
 
-# ============================
-# MANEJO DE CIFRADO (AES-ECB determinista)
-# ============================
 class CryptoHandler:
-    """Cifrado simétrico AES-ECB con clave derivada de la contraseña (sin nonce)."""
     def __init__(self, password=None):
         self.password = password
         if password is not None:
-            # Derivar clave de 32 bytes usando SHA-256 (AES-256)
             self.key = hashlib.sha256(password.encode()).digest()
         else:
             self.key = None
@@ -53,14 +43,11 @@ class CryptoHandler:
     def encrypt(self, plaintext: str) -> str:
         if self.key is None:
             return plaintext
-        # Relleno PKCS7
         padder = padding.PKCS7(128).padder()
         padded_data = padder.update(plaintext.encode()) + padder.finalize()
-        # Cifrar con AES-ECB
         cipher = Cipher(algorithms.AES(self.key), modes.ECB())
         encryptor = cipher.encryptor()
         ciphertext = encryptor.update(padded_data) + encryptor.finalize()
-        # Codificar en base64
         return base64.b64encode(ciphertext).decode()
 
     def decrypt(self, ciphertext_str: str) -> str | None:
@@ -68,21 +55,15 @@ class CryptoHandler:
             return ciphertext_str
         try:
             data = base64.b64decode(ciphertext_str)
-            # Descifrar
             cipher = Cipher(algorithms.AES(self.key), modes.ECB())
             decryptor = cipher.decryptor()
             padded_plaintext = decryptor.update(data) + decryptor.finalize()
-            # Quitar relleno PKCS7
             unpadder = padding.PKCS7(128).unpadder()
             plaintext = unpadder.update(padded_plaintext) + unpadder.finalize()
             return plaintext.decode()
         except Exception:
-            # Contraseña incorrecta o datos corruptos
             return None
 
-# ============================
-# FUNCIONES AUXILIARES
-# ============================
 def get_local_ip():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
@@ -113,9 +94,6 @@ def on_closing(root):
         pass
     root.destroy()
 
-# ============================
-# DESCUBRIMIENTO DE SALAS
-# ============================
 def descubrir_salas(timeout=2):
     udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -140,17 +118,22 @@ def descubrir_salas(timeout=2):
     udp_sock.close()
     return salas
 
-# ============================
-# PROCESAMIENTO DE LÍNEA DE CHAT
-# ============================
 def procesar_linea(linea, text_area, root, crypto):
     global LAST_SENDER
     mensaje = linea.strip()
+    if not mensaje:
+        return  # ignorar líneas vacías
+
     current_sender = None
     needs_separator = True
     mensaje_content_raw = mensaje
+    color = "negro"
 
-    # Detectar remitente (formato: "nombre (ip): contenido")
+    if mensaje == "[KICKED]":
+        mostrar_mensaje(text_area, "[Has sido expulsado del chat]", "rojo", needs_separator=False)
+        root.after(500, lambda: on_closing(root))
+        return
+
     start_paren = mensaje.find('(')
     if start_paren != -1:
         end_paren = mensaje.find(')', start_paren)
@@ -158,18 +141,22 @@ def procesar_linea(linea, text_area, root, crypto):
             current_sender = mensaje[:start_paren].strip()
             mensaje_content_raw = mensaje[end_paren+1:].lstrip(':').strip()
             if not mensaje.startswith('['):
-                # Intentar descifrar
                 decrypted = crypto.decrypt(mensaje_content_raw)
                 if decrypted is not None:
                     display_content = decrypted
                 else:
-                    display_content = mensaje_content_raw  # basura
-                if current_sender == CLIENT_USERNAME:
-                    mensaje = f"Tú: {display_content}"
-                else:
-                    mensaje = f"{current_sender}: {display_content}"
+                    display_content = mensaje_content_raw
+                    color = "rojo"
+                    if current_sender == CLIENT_USERNAME:
+                        mensaje = f"Tú: [CIFRADO] {display_content}"
+                    else:
+                        mensaje = f"{current_sender}: [CIFRADO] {display_content}"
+                if color == "negro":
+                    if current_sender == CLIENT_USERNAME:
+                        mensaje = f"Tú: {display_content}"
+                    else:
+                        mensaje = f"{current_sender}: {display_content}"
 
-    # Mensajes de sistema
     if mensaje.startswith('[Entró'):
         LAST_SENDER = None
         mostrar_mensaje(text_area, mensaje, "verde", needs_separator=False)
@@ -183,10 +170,10 @@ def procesar_linea(linea, text_area, root, crypto):
         if current_sender and current_sender == LAST_SENDER:
             needs_separator = False
         LAST_SENDER = current_sender
-        mostrar_mensaje(text_area, mensaje, "negro", needs_separator=needs_separator)
+        mostrar_mensaje(text_area, mensaje, color, needs_separator=needs_separator)
 
-        # Notificación nativa solo para mensajes de otros usuarios y si la ventana NO está activa
-        if not mensaje.startswith('[') and current_sender and current_sender != CLIENT_USERNAME:
+        if (not mensaje.startswith('[') and current_sender
+            and current_sender != CLIENT_USERNAME and color == "negro"):
             if not getattr(root, 'window_focused', True):
                 try:
                     subprocess.run(
@@ -197,9 +184,6 @@ def procesar_linea(linea, text_area, root, crypto):
                 except Exception:
                     pass
 
-# ============================
-# HILO DE RECEPCIÓN
-# ============================
 def recibir_mensajes(sock, text_area, root, crypto):
     global LAST_SENDER
     buffer = ""
@@ -211,7 +195,8 @@ def recibir_mensajes(sock, text_area, root, crypto):
             buffer += data.decode("utf-8")
             while '\n' in buffer:
                 linea, buffer = buffer.split('\n', 1)
-                procesar_linea(linea, text_area, root, crypto)
+                if linea.strip():  # solo procesar líneas no vacías
+                    procesar_linea(linea, text_area, root, crypto)
         except socket.error:
             if not stop_event.is_set():
                 mostrar_mensaje(text_area, "[Conexión perdida]", "rojo")
@@ -219,9 +204,6 @@ def recibir_mensajes(sock, text_area, root, crypto):
     if not stop_event.is_set():
         root.after(0, lambda: on_closing(root))
 
-# ============================
-# CONFIGURAR ENVÍO
-# ============================
 def configurar_envio(sock, entry, text_area, crypto):
     def _enviar_real(event=None):
         global LAST_SENDER
@@ -241,29 +223,22 @@ def configurar_envio(sock, entry, text_area, crypto):
                 entry.delete(0, tk.END)
     return _enviar_real
 
-# ============================
-# INICIAR CHAT CON IP
-# ============================
 def iniciar_chat_con_ip(ip_server):
     global client_socket, CLIENT_USERNAME
     stop_event.clear()
 
-    # Conectar al servidor ANTES de crear la ventana principal
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)  # Solo para la conexión inicial
+        sock.settimeout(5)
         sock.connect((ip_server, TCP_PORT))
         client_socket = sock
         sock.sendall(CLIENT_USERNAME.encode("utf-8"))
 
-        # Recibir control (con delimitador)
         control_msg = sock.recv(BUFFER).decode().strip()
-        # Desactivar timeout para el resto de la comunicación
         sock.settimeout(None)
 
         password = None
         if control_msg == "PASSWORD_REQUIRED":
-            # Pedir contraseña antes de mostrar la ventana principal
             password = simpledialog.askstring("Contraseña", "Esta sala requiere contraseña.\nIngresa la contraseña:", show='*')
             if password is None:
                 sock.close()
@@ -274,7 +249,6 @@ def iniciar_chat_con_ip(ip_server):
         messagebox.showerror("Error de Conexión", f"No se pudo conectar a {ip_server}. Error: {e}")
         return
 
-    # Ahora crear la ventana principal
     root = tk.Tk(className="monojo_chats_lan_main")
     root.title(f"Monojo Chats LAN - {CLIENT_USERNAME} -> Conectado a {ip_server}")
     root.geometry("500x500")
@@ -320,9 +294,6 @@ def iniciar_chat_con_ip(ip_server):
 
     root.mainloop()
 
-# ============================
-# SELECCIÓN DE SALA
-# ============================
 def seleccionar_sala():
     global CLIENT_USERNAME
     salas = descubrir_salas()
@@ -351,9 +322,6 @@ def seleccionar_sala():
     lista_salas.bind("<Double-1>", conectar_desde_lista)
     root.mainloop()
 
-# ============================
-# INICIO
-# ============================
 if __name__ == "__main__":
     CLIENT_USERNAME = simpledialog.askstring("Nombre de Usuario", "Ingresa tu nombre de usuario:")
     if not CLIENT_USERNAME:
