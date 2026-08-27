@@ -1,6 +1,6 @@
 {
   "name": "mc-lan",
-  "version": "2.1.1",
+  "version": "https://raw.githubusercontent.com/LyndsCorp/Monojo-Chats-LAN/refs/heads/main/VERSION",
   "apt": ["python3", "python3-pil", "python3-tk", "python3-cryptography"],
   "pacman": ["python", "python-pillow", "tk", "python-cryptography"],
   "dnf": ["python3", "python3-pillow", "python3-tkinter", "python3-cryptography"],
