@@ -1,4 +1,9 @@
 #!/bin/python3
+
+# Copyright (C) 2026 David Baña Szymaniak
+# Licencia GPL v3 o posterior
+# Proyecto: Monojo Project
+
 import socket
 import threading
 import sys
@@ -18,6 +23,7 @@ except ImportError:
     CRYPTOGRAPHY_AVAILABLE = False
     print("Advertencia: La librería 'cryptography' no está instalada.")
     print("El servidor no podrá descifrar mensajes sin ella. Instálala con: pip install cryptography")
+    print("O con: sudo apt install python3-cryptography")
 
 # ============================
 # CONFIGURACIÓN
@@ -161,7 +167,7 @@ def manejar_cliente(client_socket, addr, text_area):
                         if texto_claro is not None:
                             mostrar_mensaje(text_area, f"{nombre_usuario}: {texto_claro}", "negro")
                         else:
-                            mostrar_mensaje(text_area, f"{nombre_usuario}: [CIFRADO] {mensaje}", "rojo")
+                            mostrar_mensaje(text_area, f"{nombre_usuario}: [PUSO CONTRASEÑA INCORRECTA] {mensaje}", "rojo")
                     else:
                         mostrar_mensaje(text_area, f"{nombre_usuario}: {mensaje}", "negro")
                     # Retransmitir sin salto de línea inicial
@@ -340,7 +346,7 @@ def main_servidor():
     local_ip = get_local_ip()
     root = tk.Tk()
     root.title(f"MonojoChat LAN - SERVIDOR (IP: {local_ip})")
-    root.geometry("700x500")
+    root.geometry("900x500")
     root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root))
 
     try:

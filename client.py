@@ -1,4 +1,9 @@
 #!/bin/python3
+
+# Copyright (C) 2026 David Baña Szymaniak
+# Licencia GPL v3 o posterior
+# Proyecto: Monojo Project
+
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog, messagebox
 import socket
@@ -150,7 +155,7 @@ def procesar_linea(linea, text_area, root, crypto):
                     if current_sender == CLIENT_USERNAME:
                         mensaje = f"Tú: [CIFRADO] {display_content}"
                     else:
-                        mensaje = f"{current_sender}: [CIFRADO] {display_content}"
+                        mensaje = f"{current_sender}: [PUSO CONTRASEÑA INCORRECTA] {display_content}"
                 if color == "negro":
                     if current_sender == CLIENT_USERNAME:
                         mensaje = f"Tú: {display_content}"
@@ -251,7 +256,7 @@ def iniciar_chat_con_ip(ip_server):
 
     root = tk.Tk(className="monojo_chats_lan_main")
     root.title(f"Monojo Chats LAN - {CLIENT_USERNAME} -> Conectado a {ip_server}")
-    root.geometry("500x500")
+    root.geometry("500x510")
     root.protocol("WM_DELETE_WINDOW", lambda: on_closing(root))
 
     root.window_focused = True
